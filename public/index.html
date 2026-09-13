@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trending Today</title>
+<style>
+  :root{
+    --ink:#0E1B1A; --panel:#132927; --panel2:#0F211F; --line:#24413D;
+    --wire:#E8A94A; --wire-dim:#8A6B3A; --text:#E7EDEA; --text-dim:#8FA6A0;
+    --danger:#D96B5B;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--ink);color:var(--text);font-family:Georgia,'Iowan Old Style',serif;}
+  .mono{font-family:'SF Mono',Menlo,Consolas,monospace;}
+  #app{max-width:960px;margin:0 auto;padding:0 20px;}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;padding:28px 0 18px;border-bottom:1px solid var(--line);}
+  header h1{font-size:26px;font-weight:400;margin:0;letter-spacing:0.3px;}
+  header h1 span{color:var(--wire);}
+  header .date{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:12px;color:var(--text-dim);}
+  header button{background:none;border:1px solid var(--line);color:var(--text-dim);padding:6px 12px;border-radius:2px;cursor:pointer;font-family:inherit;font-size:13px;}
+  header button:hover{border-color:var(--wire-dim);color:var(--text);}
+
+  /* auth */
+  #auth{max-width:360px;margin:80px auto;padding:0 20px;}
+  #auth h2{font-weight:400;font-size:22px;margin-bottom:4px;}
+  #auth p.sub{color:var(--text-dim);font-size:14px;margin-top:0;margin-bottom:28px;}
+  #auth input{width:100%;padding:10px 12px;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:2px;font-family:inherit;font-size:15px;}
+  #auth input:focus{outline:none;border-color:var(--wire-dim);}
+  #auth button{width:100%;padding:11px;background:var(--wire);color:var(--ink);border:none;border-radius:2px;font-family:inherit;font-size:15px;cursor:pointer;font-weight:600;}
+  #auth button:hover{background:#f0bb66;}
+  #auth .switch{margin-top:16px;font-size:13px;color:var(--text-dim);}
+  #auth .switch a{color:var(--wire);cursor:pointer;text-decoration:none;}
+  #auth .error{color:var(--danger);font-size:13px;margin-bottom:12px;min-height:16px;}
+
+  /* main layout */
+  #main{display:none;grid-template-columns:220px 1fr;gap:32px;padding:24px 0 60px;}
+  #main.show{display:grid;}
+  aside h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);font-family:'SF Mono',Menlo,Consolas,monospace;font-weight:400;margin-bottom:10px;}
+  .pref-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;}
+  .pref-row .tag{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:10px;color:var(--wire-dim);text-transform:uppercase;}
+  .pref-row button{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;}
+  .pref-row button:hover{color:var(--danger);}
+  #prefForm{margin-top:16px;}
+  #prefForm select, #prefForm input{width:100%;padding:8px;margin-bottom:8px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:2px;font-family:inherit;font-size:13px;}
+  #prefForm button{width:100%;padding:8px;background:transparent;border:1px solid var(--wire-dim);color:var(--wire);border-radius:2px;cursor:pointer;font-size:13px;}
+  #prefForm button:hover{background:var(--wire-dim);color:var(--ink);}
+
+  .feed-item{padding:16px 0;border-bottom:1px solid var(--line);}
+  .feed-item .meta{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:11px;color:var(--wire-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
+  .feed-item a{color:var(--text);text-decoration:none;font-size:18px;line-height:1.4;}
+  .feed-item a:hover{color:var(--wire);}
+  .feed-item .time{color:var(--text-dim);font-family:'SF Mono',Menlo,Consolas,monospace;font-size:11px;margin-left:8px;}
+  .empty{color:var(--text-dim);font-size:14px;padding:40px 0;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;}
+</style>
+</head>
+<body>
+
+<div id="auth">
+  <h2>Trending Today</h2>
+  <p class="sub" id="authSub">Sign in to your daily wire.</p>
+  <div class="error" id="authError"></div>
+  <input type="email" id="email" placeholder="Email" autocomplete="email">
+  <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+  <button id="authSubmit">Sign in</button>
+  <div class="switch">No account yet? <a id="authSwitch">Create one</a></div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1>Trending <span>Today</span></h1>
+    <div style="display:flex;align-items:center;gap:16px">
+      <span class="date mono" id="today"></span>
+      <button id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <div id="main">
+    <aside>
+      <h3>Your sources</h3>
+      <div id="prefList"></div>
+      <div id="prefForm">
+        <select id="sourceType">
+          <option value="youtube">YouTube (search term)</option>
+          <option value="github_trending">GitHub trending (language, blank = all)</option>
+          <option value="reddit">Reddit (subreddit)</option>
+          <option value="rss">RSS (feed URL)</option>
+          <option value="twitter">Twitter/X (topic — Phase 2)</option>
+          <option value="bilibili">Bilibili (topic — Phase 2)</option>
+          <option value="xhs">XiaoHongShu (topic — Phase 2)</option>
+        </select>
+        <input type="text" id="keyword" placeholder="e.g. programming, ai agents...">
+        <button id="addPref">Add source</button>
+      </div>
+    </aside>
+    <main id="feed">
+      <div class="empty">Loading your feed…</div>
+    </main>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let mode = "login";
+
+$('today').textContent = new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+$('authSwitch').onclick = () => {
+  mode = mode === "login" ? "signup" : "login";
+  $('authSubmit').textContent = mode === "login" ? "Sign in" : "Create account";
+  $('authSub').textContent = mode === "login" ? "Sign in to your daily wire." : "A few seconds to set up your feed.";
+  $('authSwitch').parentElement.firstChild.textContent = mode === "login" ? "No account yet? " : "Already have one? ";
+  $('authSwitch').textContent = mode === "login" ? "Create one" : "Sign in";
+  $('authError').textContent = "";
+};
+
+$('authSubmit').onclick = async () => {
+  const email = $('email').value.trim(), password = $('password').value;
+  $('authError').textContent = "";
+  const res = await fetch(`/api/auth/${mode === "login" ? "login" : "signup"}`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    $('authError').textContent = err.error || "Something went wrong.";
+    return;
+  }
+  boot();
+};
+
+$('logout').onclick = async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  location.reload();
+};
+
+async function loadPreferences() {
+  const res = await fetch('/api/preferences');
+  const prefs = await res.json();
+  $('prefList').innerHTML = prefs.length ? prefs.map(p => `
+    <div class="pref-row">
+      <div><span class="tag">${p.source_type.replace('_',' ')}</span><br>${p.keyword || '(all)'}</div>
+      <button data-type="${p.source_type}" data-kw="${p.keyword}" class="del-pref">✕</button>
+    </div>
+  `).join('') : '<div class="empty" style="padding:20px 0">No sources yet — add one below.</div>';
+
+  document.querySelectorAll('.del-pref').forEach(btn => {
+    btn.onclick = async () => {
+      await fetch('/api/preferences', {
+        method: 'DELETE', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source_type: btn.dataset.type, keyword: btn.dataset.kw })
+      });
+      loadPreferences(); loadFeed();
+    };
+  });
+}
+
+$('addPref').onclick = async () => {
+  const source_type = $('sourceType').value;
+  const keyword = $('keyword').value.trim();
+  if (source_type !== 'github_trending' && !keyword) return;
+  await fetch('/api/preferences', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source_type, keyword })
+  });
+  $('keyword').value = '';
+  loadPreferences(); loadFeed();
+};
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins/60)}h ago`;
+  return `${Math.floor(mins/1440)}d ago`;
+}
+
+async function loadFeed() {
+  const res = await fetch('/api/feed');
+  const items = await res.json();
+  $('feed').innerHTML = items.length ? items.map(i => `
+    <div class="feed-item">
+      <div class="meta">${i.source_type.replace('_',' ')} · ${i.source_key || 'all'}</div>
+      <a href="${i.url}" target="_blank" rel="noopener">${i.title}</a>
+      <span class="time">${timeAgo(i.published_at)}</span>
+    </div>
+  `).join('') : '<div class="empty">Nothing yet — new sources fill in on the next daily run.</div>';
+}
+
+async function boot() {
+  const res = await fetch('/api/me');
+  if (!res.ok) { $('auth').style.display = 'block'; $('app').style.display = 'none'; return; }
+  $('auth').style.display = 'none';
+  $('app').style.display = 'block';
+  $('main').classList.add('show');
+  loadPreferences();
+  loadFeed();
+}
+
+boot();
+</script>
+</body>
+</html>
