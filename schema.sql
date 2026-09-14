@@ -13,24 +13,20 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL
 );
 
--- One row per topic/source a user has chosen to follow.
--- source_type: 'youtube' | 'github_trending' | 'reddit' | 'rss' | 'twitter' | 'bilibili' | 'xhs'
--- keyword meaning depends on source_type:
---   youtube        -> search query, e.g. "ai agents"
---   github_trending-> language, e.g. "python" (use "" for all languages)
---   reddit         -> subreddit name, e.g. "programming"
---   rss            -> full feed URL
---   twitter/bilibili/xhs -> topic/handle string used by the Agent-Reach runner (Phase 2)
-CREATE TABLE IF NOT EXISTS user_preferences (
+-- One row per topic (a single keyword) a user has chosen to follow.
+-- The cron fetches this same keyword across every open category
+-- (YouTube, GitHub, News) automatically — no per-source setup needed.
+CREATE TABLE IF NOT EXISTS user_topics (
   user_id TEXT NOT NULL REFERENCES users(id),
-  source_type TEXT NOT NULL,
   keyword TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, source_type, keyword)
+  PRIMARY KEY (user_id, keyword)
 );
 
 -- One row per fetched item. id is a sha-256 of the URL so re-fetching the
 -- same link across cron runs is a no-op (INSERT OR IGNORE).
+-- source_type: 'youtube' | 'github' | 'rss' | 'twitter' | 'reddit' | 'bilibili' | 'xhs'
+-- source_key: the topic keyword this item was fetched for.
 CREATE TABLE IF NOT EXISTS feed_items (
   id TEXT PRIMARY KEY,
   source_type TEXT NOT NULL,

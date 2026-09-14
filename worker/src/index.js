@@ -1,8 +1,15 @@
-// trendingtoday.skylinn.in — API Worker (Phase 1)
+// trendingtoday.skylinn.in — API Worker (Phase 1, topic-based model)
 // Routed at trendingtoday.skylinn.in/api/*  (same origin as the Pages frontend,
 // so no CORS/cookie headaches). See ../README.md for deploy + routing steps.
+//
+// Model: a user adds a TOPIC (a single keyword). The cron fetches that
+// keyword across every open category (YouTube, GitHub, News) automatically —
+// no per-source setup. Phase 2 (Twitter/X, Reddit, Bilibili, XHS) pushes
+// into the same feed_items table via /api/ingest, keyed by the same keyword.
 
 const SESSION_DAYS = 30;
+const OPEN_CATEGORIES = ["youtube", "github", "rss"];
+const ITEMS_PER_CATEGORY = 10; // fetched+stored; frontend shows 5, can expand to this many
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -96,51 +103,59 @@ async function handleLogout(request, env) {
   return json({ ok: true }, 200, clearSessionCookie());
 }
 
-// ---------- preferences ----------
+// ---------- topics ----------
 
-async function handleGetPreferences(request, env, user) {
-  const rows = await env.DB.prepare("SELECT source_type, keyword FROM user_preferences WHERE user_id = ?").bind(user.id).all();
+async function handleGetTopics(request, env, user) {
+  const rows = await env.DB.prepare("SELECT keyword, created_at FROM user_topics WHERE user_id = ? ORDER BY created_at DESC")
+    .bind(user.id).all();
   return json(rows.results || []);
 }
 
-async function handleAddPreference(request, env, user) {
-  const { source_type, keyword } = await request.json().catch(() => ({}));
-  const validTypes = ["youtube", "github_trending", "reddit", "rss", "twitter", "bilibili", "xhs"];
-  if (!validTypes.includes(source_type) || !keyword) return bad("Valid source_type and keyword required");
-  await env.DB.prepare(
-    "INSERT OR IGNORE INTO user_preferences (user_id, source_type, keyword, created_at) VALUES (?, ?, ?, ?)"
-  ).bind(user.id, source_type, keyword, Date.now()).run();
+async function handleAddTopic(request, env, user) {
+  const { keyword } = await request.json().catch(() => ({}));
+  const clean = (keyword || "").trim();
+  if (!clean) return bad("A keyword is required");
+  await env.DB.prepare("INSERT OR IGNORE INTO user_topics (user_id, keyword, created_at) VALUES (?, ?, ?)")
+    .bind(user.id, clean, Date.now()).run();
   return json({ ok: true }, 201);
 }
 
-async function handleDeletePreference(request, env, user) {
-  const { source_type, keyword } = await request.json().catch(() => ({}));
-  await env.DB.prepare("DELETE FROM user_preferences WHERE user_id = ? AND source_type = ? AND keyword = ?")
-    .bind(user.id, source_type, keyword).run();
+async function handleDeleteTopic(request, env, user) {
+  const { keyword } = await request.json().catch(() => ({}));
+  await env.DB.prepare("DELETE FROM user_topics WHERE user_id = ? AND keyword = ?").bind(user.id, keyword).run();
   return json({ ok: true });
 }
 
 // ---------- feed ----------
+// Returns: [{ keyword, categories: { youtube: [...items], github: [...], rss: [...], twitter: [...] } }, ...]
+// Each category array holds up to ITEMS_PER_CATEGORY items, newest first.
 
 async function handleFeed(request, env, user) {
+  const topicsRes = await env.DB.prepare("SELECT keyword FROM user_topics WHERE user_id = ? ORDER BY created_at DESC")
+    .bind(user.id).all();
+  const keywords = (topicsRes.results || []).map((t) => t.keyword);
+  if (!keywords.length) return json([]);
+
+  const placeholders = keywords.map(() => "?").join(",");
   const rows = await env.DB.prepare(
-    `SELECT fi.id, fi.source_type, fi.source_key, fi.title, fi.url, fi.summary, fi.published_at
-     FROM feed_items fi
-     JOIN user_preferences up ON up.source_type = fi.source_type AND up.keyword = fi.source_key
-     WHERE up.user_id = ?
-     ORDER BY fi.published_at DESC LIMIT 100`
-  ).bind(user.id).all();
-  return json(rows.results || []);
+    `SELECT source_type, source_key, title, url, summary, published_at
+     FROM feed_items WHERE source_key IN (${placeholders})
+     ORDER BY published_at DESC LIMIT 2000`
+  ).bind(...keywords).all();
+
+  const byKeyword = {};
+  for (const kw of keywords) byKeyword[kw] = {};
+  for (const item of rows.results || []) {
+    const bucket = byKeyword[item.source_key];
+    if (!bucket) continue;
+    bucket[item.source_type] = bucket[item.source_type] || [];
+    if (bucket[item.source_type].length < ITEMS_PER_CATEGORY) bucket[item.source_type].push(item);
+  }
+
+  return json(keywords.map((kw) => ({ keyword: kw, categories: byKeyword[kw] })));
 }
 
 // ---------- Phase 2 ingest (Agent-Reach runner pushes here) ----------
-
-async function handleDebugRunFetch(request, env) {
-  const key = request.headers.get("x-ingest-key");
-  if (!env.INGEST_KEY || key !== env.INGEST_KEY) return bad("Unauthorized", 401);
-  await runCron(env);
-  return json({ ok: true, ranAt: Date.now() });
-}
 
 async function handleIngest(request, env) {
   const key = request.headers.get("x-ingest-key");
@@ -149,6 +164,13 @@ async function handleIngest(request, env) {
   if (!Array.isArray(items)) return bad("Body must be an array of items");
   await upsertItems(env, items);
   return json({ ingested: items.length });
+}
+
+async function handleDebugRunFetch(request, env) {
+  const key = request.headers.get("x-ingest-key");
+  if (!env.INGEST_KEY || key !== env.INGEST_KEY) return bad("Unauthorized", 401);
+  await runCron(env);
+  return json({ ok: true, ranAt: Date.now() });
 }
 
 async function upsertItems(env, items) {
@@ -162,11 +184,11 @@ async function upsertItems(env, items) {
   }
 }
 
-// ---------- cron fetchers (open sources only) ----------
+// ---------- cron fetchers (open categories, all keyword-driven) ----------
 
 async function fetchYouTube(keyword, apiKey) {
   if (!apiKey) return [];
-  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date&maxResults=10&q=${encodeURIComponent(keyword)}&key=${apiKey}`;
+  const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&order=date&maxResults=${ITEMS_PER_CATEGORY}&q=${encodeURIComponent(keyword)}&key=${apiKey}`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
@@ -180,48 +202,40 @@ async function fetchYouTube(keyword, apiKey) {
   }));
 }
 
-async function fetchGithubTrending(language) {
-  const url = language ? `https://github.com/trending/${language}?since=daily` : `https://github.com/trending?since=daily`;
-  const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; trendingtoday-bot/1.0)" } });
+async function fetchGithubSearch(keyword) {
+  // Unauthenticated GitHub search API: 10 requests/min — plenty for a
+  // personal daily cron across a handful of topics.
+  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(keyword)}&sort=stars&order=desc&per_page=${ITEMS_PER_CATEGORY}`;
+  const res = await fetch(url, { headers: { "user-agent": "trendingtoday-bot/1.0", accept: "application/vnd.github+json" } });
   if (!res.ok) return [];
-  const items = [];
-  const rewriter = new HTMLRewriter().on("article.Box-row h2 a", {
-    element(el) {
-      const href = el.getAttribute("href");
-      if (href) items.push({ href, title: "" });
-    },
-    text(t) {
-      if (items.length) items[items.length - 1].title += t.text;
-    },
-  });
-  await rewriter.transform(res).text();
-  return items
-    .filter((i) => i.href)
-    .map((i) => ({
-      source_type: "github_trending",
-      source_key: language || "",
-      title: i.title.replace(/\s+/g, " ").trim(),
-      url: `https://github.com${i.href}`,
-      summary: null,
-      published_at: Date.now(),
-    }));
+  const data = await res.json();
+  return (data.items || []).map((r) => ({
+    source_type: "github",
+    source_key: keyword,
+    title: `${r.full_name} — ★${r.stargazers_count}`,
+    url: r.html_url,
+    summary: r.description,
+    published_at: new Date(r.pushed_at || r.updated_at).getTime(),
+  }));
 }
 
-async function fetchRSS(feedUrl) {
-  const res = await fetch(feedUrl, { headers: { "user-agent": "trendingtoday-bot/1.0" } });
+async function fetchRSS(keyword) {
+  // Google News' public search RSS aggregates many outlets for a keyword,
+  // which fits an aggregator better than a single fixed feed URL would.
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(keyword)}&hl=en-IN&gl=IN&ceid=IN:en`;
+  const res = await fetch(url, { headers: { "user-agent": "trendingtoday-bot/1.0" } });
   if (!res.ok) return [];
   const xml = await res.text();
   const items = [];
-  const itemBlocks = xml.match(/<item\b[\s\S]*?<\/item>/gi) || xml.match(/<entry\b[\s\S]*?<\/entry>/gi) || [];
-  for (const block of itemBlocks.slice(0, 15)) {
+  const itemBlocks = xml.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  for (const block of itemBlocks.slice(0, ITEMS_PER_CATEGORY)) {
     const title = (block.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]?.replace(/<!\[CDATA\[|\]\]>/g, "").trim();
-    const linkMatch = block.match(/<link[^>]*>([\s\S]*?)<\/link>/i) || block.match(/<link[^>]*href="([^"]+)"/i);
-    const link = linkMatch ? (linkMatch[1] || "").trim() : null;
-    const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || block.match(/<published>([\s\S]*?)<\/published>/i) || [])[1];
+    const link = (block.match(/<link[^>]*>([\s\S]*?)<\/link>/i) || [])[1]?.trim();
+    const pubDate = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i) || [])[1];
     if (title && link) {
       items.push({
         source_type: "rss",
-        source_key: feedUrl,
+        source_key: keyword,
         title,
         url: link,
         summary: null,
@@ -233,20 +247,20 @@ async function fetchRSS(feedUrl) {
 }
 
 async function runCron(env) {
-  const prefs = await env.DB.prepare("SELECT DISTINCT source_type, keyword FROM user_preferences").all();
-  const openTypes = ["youtube", "github_trending", "rss"];
-  for (const pref of prefs.results || []) {
-    if (!openTypes.includes(pref.source_type)) continue;
-    let items = [];
-    try {
-      if (pref.source_type === "youtube") items = await fetchYouTube(pref.keyword, env.YOUTUBE_API_KEY);
-      else if (pref.source_type === "github_trending") items = await fetchGithubTrending(pref.keyword);
-      else if (pref.source_type === "rss") items = await fetchRSS(pref.keyword);
-    } catch (err) {
-      console.error(`fetch failed for ${pref.source_type}:${pref.keyword}`, err);
-      continue;
+  const topics = await env.DB.prepare("SELECT DISTINCT keyword FROM user_topics").all();
+  for (const { keyword } of topics.results || []) {
+    for (const category of OPEN_CATEGORIES) {
+      let items = [];
+      try {
+        if (category === "youtube") items = await fetchYouTube(keyword, env.YOUTUBE_API_KEY);
+        else if (category === "github") items = await fetchGithubSearch(keyword);
+        else if (category === "rss") items = await fetchRSS(keyword);
+      } catch (err) {
+        console.error(`fetch failed for ${category}:${keyword}`, err);
+        continue;
+      }
+      await upsertItems(env, items);
     }
-    await upsertItems(env, items);
   }
 }
 
@@ -270,9 +284,9 @@ export default {
       if (path === "/api/me" && method === "GET") return user ? json(user) : bad("Not authenticated", 401);
       if (!user) return bad("Not authenticated", 401);
 
-      if (path === "/api/preferences" && method === "GET") return await handleGetPreferences(request, env, user);
-      if (path === "/api/preferences" && method === "POST") return await handleAddPreference(request, env, user);
-      if (path === "/api/preferences" && method === "DELETE") return await handleDeletePreference(request, env, user);
+      if (path === "/api/topics" && method === "GET") return await handleGetTopics(request, env, user);
+      if (path === "/api/topics" && method === "POST") return await handleAddTopic(request, env, user);
+      if (path === "/api/topics" && method === "DELETE") return await handleDeleteTopic(request, env, user);
       if (path === "/api/feed" && method === "GET") return await handleFeed(request, env, user);
 
       return bad("Not found", 404);

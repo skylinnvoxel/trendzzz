@@ -1,9 +1,10 @@
 # Trending Today — Phase 1
 
-Personalized daily dashboard at **trendingtoday.skylinn.in**. Phase 1 covers
-YouTube, GitHub trending, Reddit, and RSS (all fetchable without a login).
-Twitter/X, Bilibili, and XiaoHongShu are stubbed in the UI for Phase 2, when
-your Windows machine's Agent-Reach runner starts pushing data to `/api/ingest`.
+Personalized daily dashboard at **trendingtoday.skylinn.in**. You add a
+single **topic** (a keyword) and Phase 1 automatically fetches it across
+YouTube, GitHub (repo search), and News (Google News search) — no
+per-source setup. Twitter/X, Reddit, Bilibili, and XHS fill in under the
+same topic once Phase 2's Agent-Reach runner starts pushing to `/api/ingest`.
 
 These steps assume the files are unzipped at
 `C:\Users\Karunanithi\Downloads\filesTrendingToday`, deploying to the
@@ -58,6 +59,14 @@ It prints a `database_id` — open `wrangler.toml` and paste it in place of
 
 ```powershell
 wrangler d1 execute trendingtoday-db --remote --file=../schema.sql
+```
+
+If you already deployed the original per-source-preferences version of
+Phase 1, run the follow-up migration to move to the topics model (safe,
+one-time, carries your existing keywords forward):
+
+```powershell
+wrangler d1 execute trendingtoday-db --remote --file=../migration_002_topics.sql
 ```
 
 ## 4. Set secrets

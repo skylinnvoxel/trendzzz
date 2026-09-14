@@ -34,24 +34,33 @@
   #auth .switch a{color:var(--wire);cursor:pointer;text-decoration:none;}
   #auth .error{color:var(--danger);font-size:13px;margin-bottom:12px;min-height:16px;}
 
-  /* main layout */
-  #main{display:none;grid-template-columns:220px 1fr;gap:32px;padding:24px 0 60px;}
-  #main.show{display:grid;}
-  aside h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);font-family:'SF Mono',Menlo,Consolas,monospace;font-weight:400;margin-bottom:10px;}
-  .pref-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;}
-  .pref-row .tag{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:10px;color:var(--wire-dim);text-transform:uppercase;}
-  .pref-row button{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;}
-  .pref-row button:hover{color:var(--danger);}
-  #prefForm{margin-top:16px;}
-  #prefForm select, #prefForm input{width:100%;padding:8px;margin-bottom:8px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:2px;font-family:inherit;font-size:13px;}
-  #prefForm button{width:100%;padding:8px;background:transparent;border:1px solid var(--wire-dim);color:var(--wire);border-radius:2px;cursor:pointer;font-size:13px;}
-  #prefForm button:hover{background:var(--wire-dim);color:var(--ink);}
+  /* topic bar */
+  #topicBar{display:flex;gap:8px;padding:20px 0;border-bottom:1px solid var(--line);}
+  #topicBar input{flex:1;padding:10px 12px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:2px;font-family:inherit;font-size:15px;}
+  #topicBar input:focus{outline:none;border-color:var(--wire-dim);}
+  #topicBar button{padding:10px 18px;background:var(--wire);color:var(--ink);border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;white-space:nowrap;}
+  #topicBar button:hover{background:#f0bb66;}
 
-  .feed-item{padding:16px 0;border-bottom:1px solid var(--line);}
-  .feed-item .meta{font-family:'SF Mono',Menlo,Consolas,monospace;font-size:11px;color:var(--wire-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
-  .feed-item a{color:var(--text);text-decoration:none;font-size:18px;line-height:1.4;}
+  #main{display:none;padding:24px 0 60px;}
+  #main.show{display:block;}
+
+  .topic-block{margin-bottom:40px;}
+  .topic-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .topic-head h2{font-size:22px;font-weight:400;margin:0;}
+  .topic-head button{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:15px;}
+  .topic-head button:hover{color:var(--danger);}
+
+  .category{margin-bottom:22px;}
+  .category h3{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--wire-dim);font-family:'SF Mono',Menlo,Consolas,monospace;font-weight:400;margin:0 0 8px;}
+  .feed-item{padding:10px 0;border-bottom:1px solid var(--line);}
+  .feed-item a{color:var(--text);text-decoration:none;font-size:17px;line-height:1.4;}
   .feed-item a:hover{color:var(--wire);}
   .feed-item .time{color:var(--text-dim);font-family:'SF Mono',Menlo,Consolas,monospace;font-size:11px;margin-left:8px;}
+  .more-toggle{background:none;border:none;color:var(--wire-dim);cursor:pointer;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:12px;padding:8px 0;}
+  .more-toggle:hover{color:var(--wire);}
+  .hidden-item{display:none;}
+  .hidden-item.shown{display:block;}
+
   .empty{color:var(--text-dim);font-size:14px;padding:40px 0;text-align:center;font-family:'SF Mono',Menlo,Consolas,monospace;}
 </style>
 </head>
@@ -76,27 +85,13 @@
     </div>
   </header>
 
+  <div id="topicBar">
+    <input type="text" id="topicInput" placeholder="Add a topic — e.g. agentic ai, space biology...">
+    <button id="addTopic">Add topic</button>
+  </div>
+
   <div id="main">
-    <aside>
-      <h3>Your sources</h3>
-      <div id="prefList"></div>
-      <div id="prefForm">
-        <select id="sourceType">
-          <option value="youtube">YouTube (search term)</option>
-          <option value="github_trending">GitHub trending (language, blank = all)</option>
-          <option value="rss">RSS (feed URL)</option>
-          <option value="reddit">Reddit (subreddit — Phase 2)</option>
-          <option value="twitter">Twitter/X (topic — Phase 2)</option>
-          <option value="bilibili">Bilibili (topic — Phase 2)</option>
-          <option value="xhs">XiaoHongShu (topic — Phase 2)</option>
-        </select>
-        <input type="text" id="keyword" placeholder="e.g. programming, ai agents...">
-        <button id="addPref">Add source</button>
-      </div>
-    </aside>
-    <main id="feed">
-      <div class="empty">Loading your feed…</div>
-    </main>
+    <div id="feed"><div class="empty">Loading your feed…</div></div>
   </div>
 </div>
 
@@ -105,6 +100,11 @@ const $ = (id) => document.getElementById(id);
 let mode = "login";
 
 $('today').textContent = new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+
+const CATEGORY_LABELS = {
+  youtube: 'YouTube', github: 'GitHub', rss: 'News',
+  twitter: 'Twitter/X', reddit: 'Reddit', bilibili: 'Bilibili', xhs: 'XiaoHongShu'
+};
 
 $('authSwitch').onclick = () => {
   mode = mode === "login" ? "signup" : "login";
@@ -135,38 +135,17 @@ $('logout').onclick = async () => {
   location.reload();
 };
 
-async function loadPreferences() {
-  const res = await fetch('/api/preferences');
-  const prefs = await res.json();
-  $('prefList').innerHTML = prefs.length ? prefs.map(p => `
-    <div class="pref-row">
-      <div><span class="tag">${p.source_type.replace('_',' ')}</span><br>${p.keyword || '(all)'}</div>
-      <button data-type="${p.source_type}" data-kw="${p.keyword}" class="del-pref">✕</button>
-    </div>
-  `).join('') : '<div class="empty" style="padding:20px 0">No sources yet — add one below.</div>';
-
-  document.querySelectorAll('.del-pref').forEach(btn => {
-    btn.onclick = async () => {
-      await fetch('/api/preferences', {
-        method: 'DELETE', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ source_type: btn.dataset.type, keyword: btn.dataset.kw })
-      });
-      loadPreferences(); loadFeed();
-    };
-  });
-}
-
-$('addPref').onclick = async () => {
-  const source_type = $('sourceType').value;
-  const keyword = $('keyword').value.trim();
-  if (source_type !== 'github_trending' && !keyword) return;
-  await fetch('/api/preferences', {
+$('addTopic').onclick = async () => {
+  const keyword = $('topicInput').value.trim();
+  if (!keyword) return;
+  await fetch('/api/topics', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ source_type, keyword })
+    body: JSON.stringify({ keyword })
   });
-  $('keyword').value = '';
-  loadPreferences(); loadFeed();
+  $('topicInput').value = '';
+  loadFeed();
 };
+$('topicInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('addTopic').click(); });
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -176,17 +155,65 @@ function timeAgo(ts) {
   return `${Math.floor(mins/1440)}d ago`;
 }
 
-async function loadFeed() {
-  const res = await fetch('/api/feed');
-  const items = await res.json();
-  $('feed').innerHTML = items.length ? items.map(i => `
+function renderCategory(type, items) {
+  const label = CATEGORY_LABELS[type] || type;
+  const visible = items.slice(0, 5);
+  const rest = items.slice(5);
+  const rowHtml = (i) => `
     <div class="feed-item">
-      <div class="meta">${i.source_type.replace('_',' ')} · ${i.source_key || 'all'}</div>
       <a href="${i.url}" target="_blank" rel="noopener">${i.title}</a>
       <span class="time">${timeAgo(i.published_at)}</span>
-    </div>
-  `).join('') : '<div class="empty">Nothing yet — new sources fill in on the next daily run.</div>';
+    </div>`;
+  const restId = `more-${type}-${Math.random().toString(36).slice(2,8)}`;
+  return `
+    <div class="category">
+      <h3>${label}</h3>
+      ${visible.map(rowHtml).join('')}
+      ${rest.length ? `
+        <div id="${restId}">${rest.map(i => `<div class="hidden-item">${rowHtml(i)}</div>`).join('')}</div>
+        <button class="more-toggle" onclick="toggleMore('${restId}', this)">Show ${rest.length} more</button>
+      ` : ''}
+    </div>`;
 }
+
+window.toggleMore = function(id, btn) {
+  const container = document.getElementById(id);
+  const items = container.querySelectorAll('.hidden-item');
+  const showing = items[0] && items[0].classList.contains('shown');
+  items.forEach(el => el.classList.toggle('shown', !showing));
+  btn.textContent = showing ? btn.textContent.replace('Hide', 'Show') : btn.textContent.replace('Show', 'Hide');
+};
+
+async function loadFeed() {
+  const res = await fetch('/api/feed');
+  const topics = await res.json();
+  if (!topics.length) {
+    $('feed').innerHTML = '<div class="empty">No topics yet — add one above to start your feed.</div>';
+    return;
+  }
+  $('feed').innerHTML = topics.map(t => {
+    const categories = Object.keys(t.categories);
+    const body = categories.length
+      ? categories.map(c => renderCategory(c, t.categories[c])).join('')
+      : '<div class="empty" style="text-align:left;padding:8px 0">Nothing yet — fills in on the next daily run.</div>';
+    return `
+      <div class="topic-block">
+        <div class="topic-head">
+          <h2>${t.keyword}</h2>
+          <button onclick="removeTopic('${t.keyword.replace(/'/g, "\\'")}')">✕ remove</button>
+        </div>
+        ${body}
+      </div>`;
+  }).join('');
+}
+
+window.removeTopic = async function(keyword) {
+  await fetch('/api/topics', {
+    method: 'DELETE', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ keyword })
+  });
+  loadFeed();
+};
 
 async function boot() {
   const res = await fetch('/api/me');
@@ -194,7 +221,6 @@ async function boot() {
   $('auth').style.display = 'none';
   $('app').style.display = 'block';
   $('main').classList.add('show');
-  loadPreferences();
   loadFeed();
 }
 
