@@ -168,12 +168,18 @@ $('logout').onclick = async () => {
 $('addTopic').onclick = async () => {
   const keyword = $('topicInput').value.trim();
   if (!keyword) return;
+  const btn = $('addTopic');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Fetching…';
   await fetch('/api/topics', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ keyword })
   });
   $('topicInput').value = '';
-  loadFeed();
+  await loadFeed();
+  btn.disabled = false;
+  btn.textContent = original;
 };
 $('topicInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('addTopic').click(); });
 

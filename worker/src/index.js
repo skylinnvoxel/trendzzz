@@ -117,6 +117,7 @@ async function handleAddTopic(request, env, user) {
   if (!clean) return bad("A keyword is required");
   await env.DB.prepare("INSERT OR IGNORE INTO user_topics (user_id, keyword, created_at) VALUES (?, ?, ?)")
     .bind(user.id, clean, Date.now()).run();
+  await fetchAndStoreTopic(env, clean); // immediate first fetch — no waiting for the daily cron or a manual curl
   return json({ ok: true }, 201);
 }
 
@@ -246,21 +247,25 @@ async function fetchRSS(keyword) {
   return items;
 }
 
+async function fetchAndStoreTopic(env, keyword) {
+  for (const category of OPEN_CATEGORIES) {
+    let items = [];
+    try {
+      if (category === "youtube") items = await fetchYouTube(keyword, env.YOUTUBE_API_KEY);
+      else if (category === "github") items = await fetchGithubSearch(keyword);
+      else if (category === "rss") items = await fetchRSS(keyword);
+    } catch (err) {
+      console.error(`fetch failed for ${category}:${keyword}`, err);
+      continue;
+    }
+    await upsertItems(env, items);
+  }
+}
+
 async function runCron(env) {
   const topics = await env.DB.prepare("SELECT DISTINCT keyword FROM user_topics").all();
   for (const { keyword } of topics.results || []) {
-    for (const category of OPEN_CATEGORIES) {
-      let items = [];
-      try {
-        if (category === "youtube") items = await fetchYouTube(keyword, env.YOUTUBE_API_KEY);
-        else if (category === "github") items = await fetchGithubSearch(keyword);
-        else if (category === "rss") items = await fetchRSS(keyword);
-      } catch (err) {
-        console.error(`fetch failed for ${category}:${keyword}`, err);
-        continue;
-      }
-      await upsertItems(env, items);
-    }
+    await fetchAndStoreTopic(env, keyword);
   }
 }
 
