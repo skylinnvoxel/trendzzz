@@ -41,6 +41,14 @@
   #topicBar button{padding:10px 18px;background:var(--wire);color:var(--ink);border:none;border-radius:2px;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;white-space:nowrap;}
   #topicBar button:hover{background:#f0bb66;}
 
+  /* source filter */
+  #filterBar{display:flex;flex-wrap:wrap;gap:8px;padding:16px 0;border-bottom:1px solid var(--line);}
+  .filter-pill{padding:6px 14px;background:transparent;border:1px solid var(--line);color:var(--text-dim);border-radius:14px;cursor:pointer;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:12px;white-space:nowrap;}
+  .filter-pill:hover{border-color:var(--wire-dim);color:var(--text);}
+  .filter-pill.active{background:var(--wire);border-color:var(--wire);color:var(--ink);font-weight:600;}
+  .filter-pill.dormant{opacity:0.55;border-style:dashed;}
+  .filter-pill.dormant.active{background:var(--panel2);border-color:var(--wire-dim);color:var(--wire-dim);opacity:1;}
+
   #main{display:none;padding:24px 0 60px;}
   #main.show{display:block;}
 
@@ -90,6 +98,8 @@
     <button id="addTopic">Add topic</button>
   </div>
 
+  <div id="filterBar"></div>
+
   <div id="main">
     <div id="feed"><div class="empty">Loading your feed…</div></div>
   </div>
@@ -104,6 +114,26 @@ $('today').textContent = new Date().toLocaleDateString(undefined, { weekday:'lon
 const CATEGORY_LABELS = {
   youtube: 'YouTube', github: 'GitHub', rss: 'News',
   twitter: 'Twitter/X', reddit: 'Reddit', bilibili: 'Bilibili', xhs: 'XiaoHongShu'
+};
+const ACTIVE_CATEGORIES = ['youtube', 'github', 'rss'];
+const DORMANT_CATEGORIES = ['twitter', 'reddit', 'bilibili', 'xhs'];
+let currentFilter = 'all';
+let lastTopics = [];
+
+function renderFilterBar() {
+  const pill = (key, label, dormant) =>
+    `<button class="filter-pill${dormant ? ' dormant' : ''}${currentFilter === key ? ' active' : ''}"
+      onclick="setFilter('${key}')">${label}${dormant ? ' · soon' : ''}</button>`;
+  $('filterBar').innerHTML =
+    pill('all', 'All') +
+    ACTIVE_CATEGORIES.map(c => pill(c, CATEGORY_LABELS[c], false)).join('') +
+    DORMANT_CATEGORIES.map(c => pill(c, CATEGORY_LABELS[c], true)).join('');
+}
+
+window.setFilter = function(key) {
+  currentFilter = key;
+  renderFilterBar();
+  renderFeed();
 };
 
 $('authSwitch').onclick = () => {
@@ -186,16 +216,31 @@ window.toggleMore = function(id, btn) {
 
 async function loadFeed() {
   const res = await fetch('/api/feed');
-  const topics = await res.json();
+  lastTopics = await res.json();
+  renderFeed();
+}
+
+function renderFeed() {
+  const topics = lastTopics;
   if (!topics.length) {
     $('feed').innerHTML = '<div class="empty">No topics yet — add one above to start your feed.</div>';
     return;
   }
   $('feed').innerHTML = topics.map(t => {
-    const categories = Object.keys(t.categories);
-    const body = categories.length
-      ? categories.map(c => renderCategory(c, t.categories[c])).join('')
-      : '<div class="empty" style="text-align:left;padding:8px 0">Nothing yet — fills in on the next daily run.</div>';
+    let body;
+    if (currentFilter === 'all') {
+      const categories = Object.keys(t.categories);
+      body = categories.length
+        ? categories.map(c => renderCategory(c, t.categories[c])).join('')
+        : '<div class="empty" style="text-align:left;padding:8px 0">Nothing yet — fills in on the next daily run.</div>';
+    } else if (DORMANT_CATEGORIES.includes(currentFilter)) {
+      body = `<div class="empty" style="text-align:left;padding:8px 0">${CATEGORY_LABELS[currentFilter]} arrives in Phase 2 — coming soon.</div>`;
+    } else {
+      const items = t.categories[currentFilter];
+      body = items && items.length
+        ? renderCategory(currentFilter, items)
+        : '<div class="empty" style="text-align:left;padding:8px 0">Nothing yet for this source — fills in on the next daily run.</div>';
+    }
     return `
       <div class="topic-block">
         <div class="topic-head">
@@ -221,6 +266,7 @@ async function boot() {
   $('auth').style.display = 'none';
   $('app').style.display = 'block';
   $('main').classList.add('show');
+  renderFilterBar();
   loadFeed();
 }
 
