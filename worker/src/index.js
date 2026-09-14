@@ -207,21 +207,6 @@ async function fetchGithubTrending(language) {
     }));
 }
 
-async function fetchReddit(subreddit) {
-  const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/hot.json?limit=10`;
-  const res = await fetch(url, { headers: { "user-agent": "trendingtoday-bot/1.0 (by /u/trendingtoday)" } });
-  if (!res.ok) return []; // Reddit sometimes rate-limits cloud IPs — see README caveats
-  const data = await res.json();
-  return (data.data?.children || []).map((c) => ({
-    source_type: "reddit",
-    source_key: subreddit,
-    title: c.data.title,
-    url: `https://www.reddit.com${c.data.permalink}`,
-    summary: null,
-    published_at: c.data.created_utc * 1000,
-  }));
-}
-
 async function fetchRSS(feedUrl) {
   const res = await fetch(feedUrl, { headers: { "user-agent": "trendingtoday-bot/1.0" } });
   if (!res.ok) return [];
@@ -249,14 +234,13 @@ async function fetchRSS(feedUrl) {
 
 async function runCron(env) {
   const prefs = await env.DB.prepare("SELECT DISTINCT source_type, keyword FROM user_preferences").all();
-  const openTypes = ["youtube", "github_trending", "reddit", "rss"];
+  const openTypes = ["youtube", "github_trending", "rss"];
   for (const pref of prefs.results || []) {
     if (!openTypes.includes(pref.source_type)) continue;
     let items = [];
     try {
       if (pref.source_type === "youtube") items = await fetchYouTube(pref.keyword, env.YOUTUBE_API_KEY);
       else if (pref.source_type === "github_trending") items = await fetchGithubTrending(pref.keyword);
-      else if (pref.source_type === "reddit") items = await fetchReddit(pref.keyword);
       else if (pref.source_type === "rss") items = await fetchRSS(pref.keyword);
     } catch (err) {
       console.error(`fetch failed for ${pref.source_type}:${pref.keyword}`, err);

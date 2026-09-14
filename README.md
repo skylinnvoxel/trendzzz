@@ -111,11 +111,12 @@ This keeps the Worker on the same origin as the Pages site, so cookies and
 
 ## Known caveats (worth knowing, not blockers)
 
-- **Reddit**: unauthenticated `.json` endpoints occasionally rate-limit or
-  block requests from cloud IPs (including Cloudflare's). If a subreddit
-  consistently comes back empty, that's why — the fix is routing Reddit
-  through the Phase 2 Agent-Reach runner instead (it already has a
-  logged-in path for Reddit).
+- **Reddit** was originally in Phase 1's open sources, but Reddit's unauthenticated
+  `.json` endpoints now return an HTML shell instead of data for anyone —
+  Cloudflare Workers, home IPs, everyone — not just cloud infrastructure.
+  It's been moved to Phase 2: it's fetched by the Agent-Reach runner (which
+  keeps a real logged-in session) and pushed to `/api/ingest` like Twitter,
+  Bilibili, and XHS.
 - **GitHub trending**: scraped from the public trending page via
   `HTMLRewriter`, since GitHub has no official trending API. If GitHub
   changes that page's HTML structure, the selector in `fetchGithubTrending`
