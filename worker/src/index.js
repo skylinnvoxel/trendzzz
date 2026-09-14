@@ -135,6 +135,13 @@ async function handleFeed(request, env, user) {
 
 // ---------- Phase 2 ingest (Agent-Reach runner pushes here) ----------
 
+async function handleDebugRunFetch(request, env) {
+  const key = request.headers.get("x-ingest-key");
+  if (!env.INGEST_KEY || key !== env.INGEST_KEY) return bad("Unauthorized", 401);
+  await runCron(env);
+  return json({ ok: true, ranAt: Date.now() });
+}
+
 async function handleIngest(request, env) {
   const key = request.headers.get("x-ingest-key");
   if (!env.INGEST_KEY || key !== env.INGEST_KEY) return bad("Unauthorized", 401);
@@ -272,6 +279,7 @@ export default {
       if (path === "/api/auth/login" && method === "POST") return await handleLogin(request, env);
       if (path === "/api/auth/logout" && method === "POST") return await handleLogout(request, env);
       if (path === "/api/ingest" && method === "POST") return await handleIngest(request, env);
+      if (path === "/api/debug/run-fetch" && method === "POST") return await handleDebugRunFetch(request, env);
 
       // everything below requires a session
       const user = await getUserFromRequest(request, env);

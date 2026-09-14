@@ -6,7 +6,7 @@ account_id = "d68dc5b24def1de0bfd0acad621dc761"  # skylinn.in-owning account
 [[d1_databases]]
 binding = "DB"
 database_name = "trendingtoday-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "858f6517-1c75-4569-88dd-018bb66aad7b"
 
 [triggers]
 crons = ["30 3 * * *"]  # 03:30 UTC = ~09:00 IST daily
